@@ -9,7 +9,7 @@ ALLDEPS=Makefile
 all: dbi.so
 
 dbi.so: dbi.o $(ALLDEPS)
-	$(CC) $(LDFLAGS) $(SHFLAGS) -o dbi.so dbi.o
+	$(LD) $(LDFLAGS) $(SHFLAGS) -o dbi.so dbi.o
 
 dbi.o: dbi.c
 	$(CC) $(ACFLAGS) -I$(JSIDIR) -c dbi.c -o dbi.o
