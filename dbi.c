@@ -133,7 +133,7 @@ static Jsi_CmdProcDecl(DBValueCmd)
 
 static Jsi_CmdSpec dbQueryCmds[] = {
     { "seek",        DBSeekCmd,    1,    1,    "row:number",    .help="Seek to a specific row", .retType=(uint)JSI_TT_BOOLEAN },
-    { "value",        DBValueCmd,    1,    1,    "",                .help="Return the value at the provided field index/name" },
+    { "value",        DBValueCmd,  1,    1,    "column:number", .help="Return the value at the provided field index/name" },
     { NULL, 0,0,0,0, .help="Commands for interacting with a DB Query object"  }
 };
 
@@ -492,7 +492,7 @@ static Jsi_CmdProcDecl(DBQueryCmd)
     qobj->fobj = Jsi_ValueGetObj(interp, *ret);
     if ((qobj->objid = Jsi_UserObjNew(interp, &dbqueryobject, qobj->fobj, qobj))<0)
     {
-        printf("ERROR!\n");
+        //printf("ERROR!\n");
         return JSI_ERROR;
     }
 
@@ -587,7 +587,7 @@ static Jsi_CmdSpec dbCmds[] = {
 
     { "begin",    DBBeginCmd,    0,  0, "", .help="Open a transaction", .retType=(uint)JSI_TT_BOOLEAN },
     { "commit",   DBCommitCmd,   0,  0, "", .help="Commit a transaction", .retType=(uint)JSI_TT_BOOLEAN },
-    { "rollback", DBRollbackCmd, 0,  0, "", .help="Rollback a transaction", .retType=(uint)JSI_TT_VOID },
+    { "rollback", DBRollbackCmd, 0,  0, "", .help="Rollback a transaction", .retType=(uint)JSI_TT_BOOLEAN },
 
     { "use",      DBUseCmd,      1,  1, "dbname:string", .help="Use a database.", .retType=(uint)JSI_TT_BOOLEAN },
 
@@ -685,14 +685,12 @@ static Jsi_CmdProcDecl(DBConstructor)
             // Set as string option:
             const char *vstr = Jsi_ValueString(interp, val, 0);
             dbi_conn_set_option( db, cp, vstr );
-            printf("[%s] => [%s]\n", cp, vstr);
         }
         else if( Jsi_ValueIsNumber(interp, val) )
         {
             // Set as numeric option:
             int vnum = Jsi_ValueToNumberInt(interp, val, true);
             dbi_conn_set_option_numeric( db, cp, vnum );
-            printf("[%s] => [%d]\n", cp, vnum);
         }
         else
         {
@@ -717,11 +715,9 @@ static Jsi_CmdProcDecl(DBConstructor)
     return JSI_OK;
 
 cleanbail:
-    printf("cleanbail\n" );
     dbi_conn_close( db );
 
 bail:
-    printf(" -> bail\n" );
     dbObjFree(interp, cmdPtr);
     Jsi_ValueMakeUndef(interp, ret);
     return JSI_ERROR;
@@ -744,7 +740,6 @@ Jsi_RC Jsi_Releasedbi(Jsi_Interp *interp) {
 Jsi_RC Jsi_Initdbi(Jsi_Interp *interp, int release) {
     if(release) return Jsi_Releasedbi(interp);
 
-    printf("LOADED DBI\n" );
     dbi_initialize_r(NULL, &g_dbi);
 
     // Register DB prototype:
