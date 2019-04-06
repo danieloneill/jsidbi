@@ -26,6 +26,7 @@ typedef struct {
     DBObj        *dbobj;
 
     dbi_result    query;
+    bool		on_record;
 
     // Cached info:
     unsigned long long    m_resultCount;
@@ -50,6 +51,7 @@ static Jsi_CmdProcDecl(DBSeekCmd)
 
     int vnum = Jsi_ValueToNumberInt(interp, arg, 1);
     int seekres = dbi_result_seek_row( cmdPtr->query, vnum+1 );
+    cmdPtr->on_record = (seekres == 1 ? true : false);
     Jsi_ValueMakeBool(interp, ret, seekres);
 
     return JSI_OK;
@@ -70,7 +72,7 @@ static Jsi_CmdProcDecl(DBValueCmd)
         return JSI_ERROR;
 
     int idx = Jsi_ValueToNumberInt(interp, arg, 1);
-    if( idx < 0 && idx >= cmdPtr->m_fieldCount )
+    if( idx < 0 || idx >= cmdPtr->m_fieldCount || !cmdPtr->on_record )
     {
         // TODO: Index out of range
         return JSI_ERROR;
@@ -132,8 +134,8 @@ static Jsi_CmdProcDecl(DBValueCmd)
 }
 
 static Jsi_CmdSpec dbQueryCmds[] = {
-    { "seek",        DBSeekCmd,    1,    1,    "row:number",    .help="Seek to a specific row", .retType=(uint)JSI_TT_BOOLEAN },
-    { "value",        DBValueCmd,  1,    1,    "column:number", .help="Return the value at the provided field index/name" },
+    { "seek",	DBSeekCmd,	1,	1,	"row:number",		.help="Seek to a specific row", .retType=(uint)JSI_TT_BOOLEAN },
+    { "value",	DBValueCmd,	1,	1,	"column:number",	.help="Return the value at the provided field index/name" },
     { NULL, 0,0,0,0, .help="Commands for interacting with a DB Query object"  }
 };
 
@@ -143,13 +145,12 @@ static Jsi_RC dbQueryObjFree(Jsi_Interp *interp, void *data)
     if( cmdPtr->query )
     {
         dbi_result_free( cmdPtr->query );
-        if( cmdPtr->m_fieldCount > 0 )
-        {
-            for( int x=0; x < cmdPtr->m_fieldCount; x++ )
-                free( cmdPtr->m_fieldNames[x] );
-            Jsi_Free( cmdPtr->m_fieldTypes );
-            Jsi_Free( cmdPtr->m_fieldNames );
-        }
+        
+        for( int x=0; x < cmdPtr->m_fieldCount; x++ )
+            free( cmdPtr->m_fieldNames[x] );
+        Jsi_Free( cmdPtr->m_fieldTypes );
+        Jsi_Free( cmdPtr->m_fieldNames );
+        
         cmdPtr->m_fieldCount = 0;
         cmdPtr->query = NULL;
     }
@@ -469,6 +470,7 @@ static Jsi_CmdProcDecl(DBQueryCmd)
     DBQueryObj *qobj = Jsi_Calloc(1, sizeof(DBQueryObj));
     qobj->query = res;
     qobj->dbobj = cmdPtr;
+    qobj->on_record = (dbi_result_first_row(res) == 1 ? true : false);
     qobj->m_resultCount = dbi_result_get_numrows( res );
     qobj->m_fieldCount = dbi_result_get_numfields( res );
     qobj->m_fieldTypes = Jsi_Calloc( qobj->m_fieldCount, sizeof(unsigned short) );
