@@ -26,7 +26,7 @@ typedef struct {
     DBObj        *dbobj;
 
     dbi_result    query;
-    bool		on_record;
+    bool        on_record;
 
     // Cached info:
     unsigned long long    m_resultCount;
@@ -57,21 +57,8 @@ static Jsi_CmdProcDecl(DBSeekCmd)
     return JSI_OK;
 }
 
-static Jsi_CmdProcDecl(DBValueCmd)
+static Jsi_RC grab_value(Jsi_Interp *interp, DBQueryObj *cmdPtr, Jsi_Value **ret, int idx)
 {
-    DBQueryObj *cmdPtr = (DBQueryObj *)Jsi_UserObjGetData(interp, _this, funcPtr);
-    if( !cmdPtr->query )
-        return JSI_ERROR;
-
-    int argc = Jsi_ValueGetLength(interp, args);
-    if( argc < 1 || argc > 1 )
-        return JSI_ERROR;
-
-    Jsi_Value *arg = Jsi_ValueArrayIndex(interp, args, 0);
-    if( arg == NULL || !Jsi_ValueIsNumber(interp, arg) )
-        return JSI_ERROR;
-
-    int idx = Jsi_ValueToNumberInt(interp, arg, 1);
     if( idx < 0 || idx >= cmdPtr->m_fieldCount || !cmdPtr->on_record )
     {
         // TODO: Index out of range
@@ -133,9 +120,161 @@ static Jsi_CmdProcDecl(DBValueCmd)
     return JSI_OK;
 }
 
+static Jsi_CmdProcDecl(DBValueCmd)
+{
+    DBQueryObj *cmdPtr = (DBQueryObj *)Jsi_UserObjGetData(interp, _this, funcPtr);
+    if( !cmdPtr->query )
+        return JSI_ERROR;
+
+    int argc = Jsi_ValueGetLength(interp, args);
+    if( argc < 1 || argc > 1 )
+        return JSI_ERROR;
+
+    Jsi_Value *arg = Jsi_ValueArrayIndex(interp, args, 0);
+    if( arg == NULL || !Jsi_ValueIsNumber(interp, arg) )
+        return JSI_ERROR;
+
+    int idx = Jsi_ValueToNumberInt(interp, arg, 1);
+    return grab_value(interp, cmdPtr, ret, idx);
+}
+
+static Jsi_CmdProcDecl(DBToArrayCmd)
+{
+    DBQueryObj *cmdPtr = (DBQueryObj *)Jsi_UserObjGetData(interp, _this, funcPtr);
+    if( !cmdPtr->query )
+        return JSI_ERROR;
+
+    signed long opt_first = -1;
+    signed long opt_last = -1;
+    enum { FORMAT_OBJECT } opt_type = FORMAT_OBJECT;
+
+    int argc = Jsi_ValueGetLength(interp, args);
+    if( argc > 1 )
+        return JSI_ERROR;
+    else if( argc > 0 )
+    {
+        Jsi_Value *arg = Jsi_ValueArrayIndex(interp, args, 0);
+        if( arg == NULL || Jsi_ValueIsNull(interp,arg) || !Jsi_ValueIsObjType(interp,arg, JSI_OT_OBJECT) )
+            return JSI_ERROR;
+ 
+        // Iterate through provided options, apply them to our new conn:
+        Jsi_Value *vopts = Jsi_ValueNew(interp);
+        if( JSI_OK != Jsi_ValueGetKeys(interp, arg, vopts) )
+        {
+            Jsi_ValueFree(interp, vopts);
+            return JSI_ERROR;
+        }
+    
+        int optcnt = Jsi_ValueGetLength(interp, vopts);
+        for( int i=0; i < optcnt; i++ )
+        {
+            Jsi_Value *v = Jsi_ValueArrayIndex(interp, vopts, i);
+            if (!v) continue;
+
+            const char *cp = Jsi_ValueString(interp, v, 0);
+            if (!cp) continue;
+    
+			printf("Processing option: %s\n", cp);
+            Jsi_Value *val = Jsi_ValueObjLookup(interp, arg, cp, true);
+			if( !val )
+				return JSI_ERROR;
+
+            if( strcmp( cp, "first" ) == 0 )
+            {
+                if( Jsi_ValueIsNumber(interp, val) )
+                    opt_first = Jsi_ValueToNumberInt(interp, val, true);
+                else
+                {
+                    Jsi_ValueFree(interp, vopts);
+                    return JSI_ERROR;
+                }
+            }
+            else if( strcmp( cp, "last" ) == 0 )
+            {
+                if( Jsi_ValueIsNumber(interp, val) )
+                    opt_last = Jsi_ValueToNumberInt(interp, val, true);
+                else
+                {
+                    Jsi_ValueFree(interp, vopts);
+                    return JSI_ERROR;
+                }
+            }
+            else if( strcmp( cp, "format" ) == 0 )
+            {
+                if( !Jsi_ValueIsString(interp, val) )
+                {
+                    Jsi_ValueFree(interp, vopts);
+                    return JSI_ERROR;
+                }
+
+                const char *vstr = Jsi_ValueString(interp, val, 0);
+                if( strcmp(vstr, "object") == 0 )
+                    opt_type = FORMAT_OBJECT;
+                else
+                {
+                    Jsi_ValueFree(interp, vopts);
+                    return JSI_ERROR;
+                }
+            }
+            else
+            {
+                // TODO Unsupported option.
+                Jsi_ValueFree(interp, vopts);
+                return JSI_ERROR;
+            }
+        }
+        Jsi_ValueFree(interp, vopts);
+    }
+
+    if( -1 == opt_first )
+        opt_first = 0;
+    if( -1 == opt_last )
+        opt_last = cmdPtr->m_resultCount - 1;
+
+    if( opt_last < opt_first )
+        opt_last = opt_first;
+
+    Jsi_Obj *oresults = Jsi_ObjNewType(interp, JSI_OT_ARRAY);
+    Jsi_ValueMakeArrayObject(interp, ret, oresults);
+
+    for( unsigned long row=opt_first; row <= opt_last && row < 100; row++ )
+    {
+        // Valid index?
+        if( row < 0 || row >= cmdPtr->m_resultCount )
+            continue;
+
+        int seekres = dbi_result_seek_row( cmdPtr->query, row+1 );
+        cmdPtr->on_record = (seekres == 1 ? true : false);
+        if( !seekres )
+            continue;
+
+        // if "object" type result:
+        if( FORMAT_OBJECT == opt_type )
+        {
+            Jsi_Obj *o = Jsi_ObjNew(interp);
+    
+            for( int idx=0; idx < cmdPtr->m_fieldCount; idx++ )
+            {
+                Jsi_Value *vfield = Jsi_ValueNew(interp);
+                if( JSI_OK != grab_value(interp, cmdPtr, &vfield, idx) )
+                    Jsi_ValueMakeNull(interp, &vfield);
+    
+                // if "object" type result:
+                Jsi_ObjInsert(interp, o, cmdPtr->m_fieldNames[idx], vfield, JSI_OM_READONLY );
+            }
+    
+            Jsi_Value *vrow = Jsi_ValueNew(interp);
+            Jsi_ValueMakeObject(interp, &vrow, o);
+            Jsi_ObjArrayAdd(interp, oresults, vrow);
+        }
+    }
+
+    return JSI_OK;
+}
 static Jsi_CmdSpec dbQueryCmds[] = {
-    { "seek",	DBSeekCmd,	1,	1,	"row:number",		.help="Seek to a specific row", .retType=(uint)JSI_TT_BOOLEAN },
-    { "value",	DBValueCmd,	1,	1,	"column:number",	.help="Return the value at the provided field index/name" },
+    { "seek",    DBSeekCmd,    1,    1,    "row:number",        .help="Seek to a specific row", .retType=(uint)JSI_TT_BOOLEAN },
+    { "value",    DBValueCmd,    1,    1,    "column:number",    .help="Return the value at the provided field index/name" },
+    { "toArray",DBToArrayCmd, 0, 1, "options:object",    .help="Return results as an array according to the formatting and range provided by options object." },
     { NULL, 0,0,0,0, .help="Commands for interacting with a DB Query object"  }
 };
 

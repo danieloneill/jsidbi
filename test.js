@@ -20,6 +20,8 @@ if( q )
 {
 	puts( "Fields: "+ JSON.stringify(q.fields) );
 	puts( "Rowcount: "+q.rowcount);
+	puts( q.toArray( {'first':0, 'last':20} ) );
+	puts( q.toArray( {'first':10, 'last':20} ) );
 	puts( "Seeking..." );
 	puts( q.seek(14) );
 	puts( "Cool. What's here?" );

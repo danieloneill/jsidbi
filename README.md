@@ -86,11 +86,20 @@ How many rows are returned by the query.
 ### query.seek(row:number):bool
 Move to a specific row within the result set. If successful, returns true. Otherwise, false.
 
-### query.value(column:number):<mixed>
+### query.value(column:number):&lt;mixed&gt;
 Return the value at the specified column index in the currently selected row.
 
-    * NULL field values will be returned as a Null value.
-    * Integers will be converted to "long long", or a signed 64-bit integer, before being returned as a JSI Number.
-    * Floating point and double precision are treated as doubles.
-    * Binary data and strings are returned as normal, but be mindful that JSI is (currently) not 100% unicode safe.
-    * Datetime will be returned as seconds since UNIX epoch.
+ * NULL field values will be returned as a Null value.
+ * Integers will be converted to "long long", or a signed 64-bit integer, before being returned as a JSI Number.
+ * Floating point and double precision are treated as doubles.
+ * Binary data and strings are returned as normal, but be mindful that JSI is (currently) not 100% unicode safe.
+ * Datetime will be returned as seconds since UNIX epoch.
+
+### query.toArray(options:object):array
+Return an array of results as defined by "options", or all results if not specified.
+
+Options can contain the following parameters:
+ * first:number - The index of the first record to return. Defaults to 0.
+ * last:number - The index of the last record to return. Defaults to the last row in the set.
+ * format:string - How to format the rows in the result set. Currently, the only option is "object", and is (oddly enough) also the default.
+
